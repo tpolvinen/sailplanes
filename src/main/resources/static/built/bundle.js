@@ -45,7 +45,6 @@
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
-	
 	// tag::vars[]
 	
 	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -59,6 +58,8 @@
 	var React = __webpack_require__(1);
 	var ReactDOM = __webpack_require__(36);
 	var client = __webpack_require__(182);
+	var follow = __webpack_require__(230); // function to hop multiple links by "rel"
+	var root = '/api';
 	// end::vars[]
 	
 	// tag::app[]
@@ -71,23 +72,132 @@
 	
 			var _this = _possibleConstructorReturn(this, (App.__proto__ || Object.getPrototypeOf(App)).call(this, props));
 	
-			_this.state = { sailplanes: [] };
+			_this.state = { sailplanes: [], attributes: [], pageSize: 2, links: {} };
+			_this.updatePageSize = _this.updatePageSize.bind(_this);
+			_this.onCreate = _this.onCreate.bind(_this);
+			_this.onDelete = _this.onDelete.bind(_this);
+			_this.onNavigate = _this.onNavigate.bind(_this);
 			return _this;
 		}
 	
+		// tag::follow-2[]
+	
+	
 		_createClass(App, [{
-			key: 'componentDidMount',
-			value: function componentDidMount() {
+			key: 'loadFromServer',
+			value: function loadFromServer(pageSize) {
 				var _this2 = this;
 	
-				client({ method: 'GET', path: '/api/sailplanes' }).done(function (response) {
-					_this2.setState({ sailplanes: response.entity._embedded.sailplanes });
+				follow(client, root, [{ rel: 'sailplanes', params: { size: pageSize } }]).then(function (sailplaneCollection) {
+					return client({
+						method: 'GET',
+						path: sailplaneCollection.entity._links.profile.href,
+						headers: { 'Accept': 'application/schema+json' }
+					}).then(function (schema) {
+						_this2.schema = schema.entity;
+						return sailplaneCollection;
+					});
+				}).done(function (sailplaneCollection) {
+					_this2.setState({
+						sailplanes: sailplaneCollection.entity._embedded.sailplanes,
+						attributes: Object.keys(_this2.schema.properties),
+						pageSize: pageSize,
+						links: sailplaneCollection.entity._links });
 				});
 			}
+			// end::follow-2[]
+	
+			// tag::create[]
+	
+		}, {
+			key: 'onCreate',
+			value: function onCreate(newSailplane) {
+				var _this3 = this;
+	
+				follow(client, root, ['sailplanes']).then(function (sailplaneCollection) {
+					return client({
+						method: 'POST',
+						path: sailplaneCollection.entity._links.self.href,
+						entity: newSailplane,
+						headers: { 'Content-Type': 'application/json' }
+					});
+				}).then(function (response) {
+					return follow(client, root, [{ rel: 'sailplanes', params: { 'size': _this3.state.pageSize } }]);
+				}).done(function (response) {
+					if (typeof response.entity._links.last != "undefined") {
+						_this3.onNavigate(response.entity._links.last.href);
+					} else {
+						_this3.onNavigate(response.entity._links.self.href);
+					}
+				});
+			}
+			// end::create[]
+	
+			// tag::delete[]
+	
+		}, {
+			key: 'onDelete',
+			value: function onDelete(sailplane) {
+				var _this4 = this;
+	
+				client({ method: 'DELETE', path: sailplane._links.self.href }).done(function (response) {
+					_this4.loadFromServer(_this4.state.pageSize);
+				});
+			}
+			// end::delete[]
+	
+			// tag::navigate[]
+	
+		}, {
+			key: 'onNavigate',
+			value: function onNavigate(navUri) {
+				var _this5 = this;
+	
+				client({ method: 'GET', path: navUri }).done(function (sailplaneCollection) {
+					_this5.setState({
+						sailplanes: sailplaneCollection.entity._embedded.sailplanes,
+						attributes: _this5.state.attributes,
+						pageSize: _this5.state.pageSize,
+						links: sailplaneCollection.entity._links
+					});
+				});
+			}
+			// end::navigate[]
+	
+			// tag::update-page-size[]
+	
+		}, {
+			key: 'updatePageSize',
+			value: function updatePageSize(pageSize) {
+				if (pageSize !== this.state.pageSize) {
+					this.loadFromServer(pageSize);
+				}
+			}
+			// end::update-page-size[]
+	
+			// tag::follow-1[]
+	
+		}, {
+			key: 'componentDidMount',
+			value: function componentDidMount() {
+				this.loadFromServer(this.state.pageSize);
+			}
+			// end::follow-1[]
+	
 		}, {
 			key: 'render',
 			value: function render() {
-				return React.createElement(SailplaneList, { sailplanes: this.state.sailplanes });
+				return React.createElement(
+					'div',
+					null,
+					React.createElement(CreateDialog, { attributes: this.state.attributes, onCreate: this.onCreate }),
+					React.createElement(SailplaneList, { sailplanes: this.state.sailplanes,
+						links: this.state.links,
+						pageSize: this.state.pageSize,
+						onNavigate: this.onNavigate,
+						onDelete: this.onDelete,
+						updatePageSize: this.updatePageSize })
+				);
 			}
 		}]);
 	
@@ -95,73 +205,262 @@
 	}(React.Component);
 	// end::app[]
 	
-	// tag::sailplane-list[]
+	// tag::create-dialog[]
 	
 	
-	var SailplaneList = function (_React$Component2) {
-		_inherits(SailplaneList, _React$Component2);
+	var CreateDialog = function (_React$Component2) {
+		_inherits(CreateDialog, _React$Component2);
 	
-		function SailplaneList() {
-			_classCallCheck(this, SailplaneList);
+		function CreateDialog(props) {
+			_classCallCheck(this, CreateDialog);
 	
-			return _possibleConstructorReturn(this, (SailplaneList.__proto__ || Object.getPrototypeOf(SailplaneList)).apply(this, arguments));
+			var _this6 = _possibleConstructorReturn(this, (CreateDialog.__proto__ || Object.getPrototypeOf(CreateDialog)).call(this, props));
+	
+			_this6.handleSubmit = _this6.handleSubmit.bind(_this6);
+			return _this6;
 		}
 	
-		_createClass(SailplaneList, [{
+		_createClass(CreateDialog, [{
+			key: 'handleSubmit',
+			value: function handleSubmit(e) {
+				var _this7 = this;
+	
+				e.preventDefault();
+				var newSailplane = {};
+				this.props.attributes.forEach(function (attribute) {
+					newSailplane[attribute] = ReactDOM.findDOMNode(_this7.refs[attribute]).value.trim();
+				});
+				this.props.onCreate(newSailplane);
+	
+				// clear out the dialog's inputs
+				this.props.attributes.forEach(function (attribute) {
+					ReactDOM.findDOMNode(_this7.refs[attribute]).value = '';
+				});
+	
+				// Navigate away from the dialog to hide it.
+				window.location = "#";
+			}
+		}, {
 			key: 'render',
 			value: function render() {
-				var sailplanes = this.props.sailplanes.map(function (sailplane) {
-					return React.createElement(Sailplane, { key: sailplane._links.self.href, sailplane: sailplane });
+				var inputs = this.props.attributes.map(function (attribute) {
+					return React.createElement(
+						'p',
+						{ key: attribute },
+						React.createElement('input', { type: 'text', placeholder: attribute, ref: attribute, className: 'field' })
+					);
 				});
+	
 				return React.createElement(
-					'table',
+					'div',
 					null,
 					React.createElement(
-						'tbody',
-						null,
+						'a',
+						{ href: '#createSailplane' },
+						'Create'
+					),
+					React.createElement(
+						'div',
+						{ id: 'createSailplane', className: 'modalDialog' },
 						React.createElement(
-							'tr',
+							'div',
 							null,
 							React.createElement(
-								'th',
-								null,
-								'Name'
+								'a',
+								{ href: '#', title: 'Close', className: 'close' },
+								'X'
 							),
 							React.createElement(
-								'th',
+								'h2',
 								null,
-								'Year'
+								'Create new sailplane'
 							),
 							React.createElement(
-								'th',
+								'form',
 								null,
-								'Structure'
-							),
-							React.createElement(
-								'th',
-								null,
-								'In Flight'
-							),
-							React.createElement(
-								'th',
-								null,
-								'Wing Area'
-							),
-							React.createElement(
-								'th',
-								null,
-								'Wing Loading'
-							),
-							React.createElement(
-								'th',
-								null,
-								'Aspect Ratio'
+								inputs,
+								React.createElement(
+									'button',
+									{ onClick: this.handleSubmit },
+									'Create'
+								)
 							)
-						),
-						sailplanes
+						)
 					)
 				);
 			}
+		}]);
+	
+		return CreateDialog;
+	}(React.Component);
+	// end::create-dialog[]
+	
+	// tag::sailplane-list[]
+	
+	
+	var SailplaneList = function (_React$Component3) {
+		_inherits(SailplaneList, _React$Component3);
+	
+		function SailplaneList(props) {
+			_classCallCheck(this, SailplaneList);
+	
+			var _this8 = _possibleConstructorReturn(this, (SailplaneList.__proto__ || Object.getPrototypeOf(SailplaneList)).call(this, props));
+	
+			_this8.handleNavFirst = _this8.handleNavFirst.bind(_this8);
+			_this8.handleNavPrev = _this8.handleNavPrev.bind(_this8);
+			_this8.handleNavNext = _this8.handleNavNext.bind(_this8);
+			_this8.handleNavLast = _this8.handleNavLast.bind(_this8);
+			_this8.handleInput = _this8.handleInput.bind(_this8);
+			return _this8;
+		}
+	
+		// tag::handle-page-size-updates[]
+	
+	
+		_createClass(SailplaneList, [{
+			key: 'handleInput',
+			value: function handleInput(e) {
+				e.preventDefault();
+				var pageSize = ReactDOM.findDOMNode(this.refs.pageSize).value;
+				if (/^[0-9]+$/.test(pageSize)) {
+					this.props.updatePageSize(pageSize);
+				} else {
+					ReactDOM.findDOMNode(this.refs.pageSize).value = pageSize.substring(0, pageSize.length - 1);
+				}
+			}
+			// end::handle-page-size-updates[]
+	
+			// tag::handle-nav[]
+	
+		}, {
+			key: 'handleNavFirst',
+			value: function handleNavFirst(e) {
+				e.preventDefault();
+				this.props.onNavigate(this.props.links.first.href);
+			}
+		}, {
+			key: 'handleNavPrev',
+			value: function handleNavPrev(e) {
+				e.preventDefault();
+				this.props.onNavigate(this.props.links.prev.href);
+			}
+		}, {
+			key: 'handleNavNext',
+			value: function handleNavNext(e) {
+				e.preventDefault();
+				this.props.onNavigate(this.props.links.next.href);
+			}
+		}, {
+			key: 'handleNavLast',
+			value: function handleNavLast(e) {
+				e.preventDefault();
+				this.props.onNavigate(this.props.links.last.href);
+			}
+			// end::handle-nav[]
+	
+			// tag::sailplane-list-render[]
+	
+		}, {
+			key: 'render',
+			value: function render() {
+				var _this9 = this;
+	
+				var sailplanes = this.props.sailplanes.map(function (sailplane) {
+					return React.createElement(Sailplane, { key: sailplane._links.self.href, sailplane: sailplane, onDelete: _this9.props.onDelete });
+				});
+	
+				var navLinks = [];
+				if ("first" in this.props.links) {
+					navLinks.push(React.createElement(
+						'button',
+						{ key: 'first', onClick: this.handleNavFirst },
+						'<<'
+					));
+				}
+				if ("prev" in this.props.links) {
+					navLinks.push(React.createElement(
+						'button',
+						{ key: 'prev', onClick: this.handleNavPrev },
+						'<'
+					));
+				}
+				if ("next" in this.props.links) {
+					navLinks.push(React.createElement(
+						'button',
+						{ key: 'next', onClick: this.handleNavNext },
+						'>'
+					));
+				}
+				if ("last" in this.props.links) {
+					navLinks.push(React.createElement(
+						'button',
+						{ key: 'last', onClick: this.handleNavLast },
+						'>>'
+					));
+				}
+	
+				return React.createElement(
+					'div',
+					null,
+					React.createElement('input', { ref: 'pageSize', defaultValue: this.props.pageSize, onInput: this.handleInput }),
+					React.createElement(
+						'table',
+						null,
+						React.createElement(
+							'tbody',
+							null,
+							React.createElement(
+								'tr',
+								null,
+								React.createElement(
+									'th',
+									null,
+									'Name'
+								),
+								React.createElement(
+									'th',
+									null,
+									'Year'
+								),
+								React.createElement(
+									'th',
+									null,
+									'Structure'
+								),
+								React.createElement(
+									'th',
+									null,
+									'In Flight'
+								),
+								React.createElement(
+									'th',
+									null,
+									'Wing Area'
+								),
+								React.createElement(
+									'th',
+									null,
+									'Wing Loading'
+								),
+								React.createElement(
+									'th',
+									null,
+									'Aspect Ratio'
+								),
+								React.createElement('th', null)
+							),
+							sailplanes
+						)
+					),
+					React.createElement(
+						'div',
+						null,
+						navLinks
+					)
+				);
+			}
+			// end::sailplane-list-render[]
+	
 		}]);
 	
 		return SailplaneList;
@@ -171,16 +470,24 @@
 	// tag::sailplane[]
 	
 	
-	var Sailplane = function (_React$Component3) {
-		_inherits(Sailplane, _React$Component3);
+	var Sailplane = function (_React$Component4) {
+		_inherits(Sailplane, _React$Component4);
 	
-		function Sailplane() {
+		function Sailplane(props) {
 			_classCallCheck(this, Sailplane);
 	
-			return _possibleConstructorReturn(this, (Sailplane.__proto__ || Object.getPrototypeOf(Sailplane)).apply(this, arguments));
+			var _this10 = _possibleConstructorReturn(this, (Sailplane.__proto__ || Object.getPrototypeOf(Sailplane)).call(this, props));
+	
+			_this10.handleDelete = _this10.handleDelete.bind(_this10);
+			return _this10;
 		}
 	
 		_createClass(Sailplane, [{
+			key: 'handleDelete',
+			value: function handleDelete() {
+				this.props.onDelete(this.props.sailplane);
+			}
+		}, {
 			key: 'render',
 			value: function render() {
 				return React.createElement(
@@ -220,6 +527,15 @@
 						'td',
 						null,
 						this.props.sailplane.aspectRatio
+					),
+					React.createElement(
+						'td',
+						null,
+						React.createElement(
+							'button',
+							{ onClick: this.handleDelete },
+							'Delete'
+						)
 					)
 				);
 			}
@@ -26984,6 +27300,53 @@
 			}
 		};
 	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+
+/***/ }),
+/* 230 */
+/***/ (function(module, exports) {
+
+	'use strict';
+	
+	module.exports = function follow(api, rootPath, relArray) {
+		var root = api({
+			method: 'GET',
+			path: rootPath
+		});
+	
+		return relArray.reduce(function (root, arrayItem) {
+			var rel = typeof arrayItem === 'string' ? arrayItem : arrayItem.rel;
+			return traverseNext(root, rel, arrayItem);
+		}, root);
+	
+		function traverseNext(root, rel, arrayItem) {
+			return root.then(function (response) {
+				if (hasEmbeddedRel(response.entity, rel)) {
+					return response.entity._embedded[rel];
+				}
+	
+				if (!response.entity._links) {
+					return [];
+				}
+	
+				if (typeof arrayItem === 'string') {
+					return api({
+						method: 'GET',
+						path: response.entity._links[rel].href
+					});
+				} else {
+					return api({
+						method: 'GET',
+						path: response.entity._links[rel].href,
+						params: arrayItem.params
+					});
+				}
+			});
+		}
+	
+		function hasEmbeddedRel(entity, rel) {
+			return entity._embedded && entity._embedded.hasOwnProperty(rel);
+		}
+	};
 
 /***/ })
 /******/ ]);

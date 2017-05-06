@@ -23,16 +23,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class DatabaseLoader implements CommandLineRunner {
 
-	private final SailplaneRepository repository;
+	private final SailplaneRepository spRepository;
 
 	@Autowired
-	public DatabaseLoader(SailplaneRepository repository) {
-		this.repository = repository;
+	public DatabaseLoader(SailplaneRepository spRepository) {
+		this.spRepository = spRepository;
 	}
 
 	@Override
 	public void run(String... strings) throws Exception {
-		this.repository.save(new Sailplane("Vampyr", 1921, "120 kg", "195 kg", "16 sq m", "12 kg/sq m", "9,95"));
+		this.spRepository.save(new Sailplane("Vampyr", 1921, "120 kg", "195 kg", "16 sq m", "12 kg/sq m", "9,95"));
+		this.spRepository.save(new Sailplane("Harth-Messerschmitt S-10", 1921, "80 kg", "150 kg", "10,3 sq m", "7,9 kg/sq m", "10,3"));
+        this.spRepository.save(new Sailplane("Fokker Biplane", 1922, "93 kg", "163 kg", "36 sq m", "4,5 kg/sq m", "---"));
 	}
 }
 // end::code[]
