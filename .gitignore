@@ -274,3 +274,10 @@ gradle-app.setting
 # gradle/wrapper/gradle-wrapper.properties
 
 # End of https://www.gitignore.io/api/eclipse,maven,gradle,java,intellij,macos,linux,windows,sublimetext,netbeans,visualstudiocode,git
+
+# Mac.
+.DS_STORE
+
+# Node.
+node_modules
+npm-debug.log
