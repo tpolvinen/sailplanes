@@ -15,10 +15,10 @@
  */
 package com.polvinen.sailplanes;
 
-import org.springframework.data.repository.CrudRepository;
+import org.springframework.data.repository.PagingAndSortingRepository;
 
 // tag::code[]
-public interface SailplaneRepository extends CrudRepository<Sailplane, Long> {
+public interface SailplaneRepository extends PagingAndSortingRepository<Sailplane, Long> {
 
 }
 // end::code[]
