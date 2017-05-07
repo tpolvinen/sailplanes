@@ -57,7 +57,8 @@
 	
 	var React = __webpack_require__(1);
 	var ReactDOM = __webpack_require__(36);
-	var client = __webpack_require__(182);
+	var when = __webpack_require__(182);
+	var client = __webpack_require__(202);
 	var follow = __webpack_require__(230); // function to hop multiple links by "rel"
 	var root = '/api';
 	// end::vars[]
@@ -75,6 +76,7 @@
 			_this.state = { sailplanes: [], attributes: [], pageSize: 2, links: {} };
 			_this.updatePageSize = _this.updatePageSize.bind(_this);
 			_this.onCreate = _this.onCreate.bind(_this);
+			_this.onUpdate = _this.onUpdate.bind(_this);
 			_this.onDelete = _this.onDelete.bind(_this);
 			_this.onNavigate = _this.onNavigate.bind(_this);
 			return _this;
@@ -95,14 +97,25 @@
 						headers: { 'Accept': 'application/schema+json' }
 					}).then(function (schema) {
 						_this2.schema = schema.entity;
+						_this2.links = sailplaneCollection.entity._links;
 						return sailplaneCollection;
 					});
-				}).done(function (sailplaneCollection) {
+				}).then(function (sailplaneCollection) {
+					return sailplaneCollection.entity._embedded.sailplanes.map(function (sailplane) {
+						return client({
+							method: 'GET',
+							path: sailplane._links.self.href
+						});
+					});
+				}).then(function (sailplanePromises) {
+					return when.all(sailplanePromises);
+				}).done(function (sailplanes) {
 					_this2.setState({
-						sailplanes: sailplaneCollection.entity._embedded.sailplanes,
+						sailplanes: sailplanes,
 						attributes: Object.keys(_this2.schema.properties),
 						pageSize: pageSize,
-						links: sailplaneCollection.entity._links });
+						links: _this2.links
+					});
 				});
 			}
 			// end::follow-2[]
@@ -133,15 +146,40 @@
 			}
 			// end::create[]
 	
+			// tag::update[]
+	
+		}, {
+			key: 'onUpdate',
+			value: function onUpdate(sailplane, updatedSailplane) {
+				var _this4 = this;
+	
+				client({
+					method: 'PUT',
+					path: sailplane.entity._links.self.href,
+					entity: updatedSailplane,
+					headers: {
+						'Content-Type': 'application/json',
+						'If-Match': sailplane.headers.Etag
+					}
+				}).done(function (response) {
+					_this4.loadFromServer(_this4.state.pageSize);
+				}, function (response) {
+					if (response.status.code === 412) {
+						alert('DENIED: Unable to update ' + sailplane.entity._links.self.href + '. Your copy is stale.');
+					}
+				});
+			}
+			// end::update[]
+	
 			// tag::delete[]
 	
 		}, {
 			key: 'onDelete',
 			value: function onDelete(sailplane) {
-				var _this4 = this;
+				var _this5 = this;
 	
 				client({ method: 'DELETE', path: sailplane._links.self.href }).done(function (response) {
-					_this4.loadFromServer(_this4.state.pageSize);
+					_this5.loadFromServer(_this5.state.pageSize);
 				});
 			}
 			// end::delete[]
@@ -151,14 +189,28 @@
 		}, {
 			key: 'onNavigate',
 			value: function onNavigate(navUri) {
-				var _this5 = this;
+				var _this6 = this;
 	
-				client({ method: 'GET', path: navUri }).done(function (sailplaneCollection) {
-					_this5.setState({
-						sailplanes: sailplaneCollection.entity._embedded.sailplanes,
-						attributes: _this5.state.attributes,
-						pageSize: _this5.state.pageSize,
-						links: sailplaneCollection.entity._links
+				client({
+					method: 'GET',
+					path: navUri
+				}).then(function (sailplaneCollection) {
+					_this6.links = sailplaneCollection.entity._links;
+	
+					return sailplaneCollection.entity._embedded.sailplanes.map(function (sailplane) {
+						return client({
+							method: 'GET',
+							path: sailplane._links.self.href
+						});
+					});
+				}).then(function (sailplanePromises) {
+					return when.all(sailplanePromises);
+				}).done(function (sailplanes) {
+					_this6.setState({
+						sailplanes: sailplanes,
+						attributes: Object.keys(_this6.schema.properties),
+						pageSize: _this6.state.pageSize,
+						links: _this6.links
 					});
 				});
 			}
@@ -194,7 +246,9 @@
 					React.createElement(SailplaneList, { sailplanes: this.state.sailplanes,
 						links: this.state.links,
 						pageSize: this.state.pageSize,
+						attributes: this.state.attributes,
 						onNavigate: this.onNavigate,
+						onUpdate: this.onUpdate,
 						onDelete: this.onDelete,
 						updatePageSize: this.updatePageSize })
 				);
@@ -214,31 +268,27 @@
 		function CreateDialog(props) {
 			_classCallCheck(this, CreateDialog);
 	
-			var _this6 = _possibleConstructorReturn(this, (CreateDialog.__proto__ || Object.getPrototypeOf(CreateDialog)).call(this, props));
+			var _this7 = _possibleConstructorReturn(this, (CreateDialog.__proto__ || Object.getPrototypeOf(CreateDialog)).call(this, props));
 	
-			_this6.handleSubmit = _this6.handleSubmit.bind(_this6);
-			return _this6;
+			_this7.handleSubmit = _this7.handleSubmit.bind(_this7);
+			return _this7;
 		}
 	
 		_createClass(CreateDialog, [{
 			key: 'handleSubmit',
 			value: function handleSubmit(e) {
-				var _this7 = this;
+				var _this8 = this;
 	
 				e.preventDefault();
 				var newSailplane = {};
 				this.props.attributes.forEach(function (attribute) {
-					newSailplane[attribute] = ReactDOM.findDOMNode(_this7.refs[attribute]).value.trim();
+					newSailplane[attribute] = ReactDOM.findDOMNode(_this8.refs[attribute]).value.trim();
 				});
 				this.props.onCreate(newSailplane);
-	
-				// clear out the dialog's inputs
 				this.props.attributes.forEach(function (attribute) {
-					ReactDOM.findDOMNode(_this7.refs[attribute]).value = '';
+					ReactDOM.findDOMNode(_this8.refs[attribute]).value = ''; // clear out the dialog's inputs
 				});
-	
-				// Navigate away from the dialog to hide it.
-				window.location = "#";
+				window.location = "#"; // Navigate away from the dialog to hide it.
 			}
 		}, {
 			key: 'render',
@@ -250,7 +300,6 @@
 						React.createElement('input', { type: 'text', placeholder: attribute, ref: attribute, className: 'field' })
 					);
 				});
-	
 				return React.createElement(
 					'div',
 					null,
@@ -268,7 +317,7 @@
 							React.createElement(
 								'a',
 								{ href: '#', title: 'Close', className: 'close' },
-								'X'
+								'X('
 							),
 							React.createElement(
 								'h2',
@@ -295,23 +344,113 @@
 	}(React.Component);
 	// end::create-dialog[]
 	
+	// tag::update-dialog[]
+	
+	
+	var UpdateDialog = function (_React$Component3) {
+		_inherits(UpdateDialog, _React$Component3);
+	
+		function UpdateDialog(props) {
+			_classCallCheck(this, UpdateDialog);
+	
+			var _this9 = _possibleConstructorReturn(this, (UpdateDialog.__proto__ || Object.getPrototypeOf(UpdateDialog)).call(this, props));
+	
+			_this9.handleSubmit = _this9.handleSubmit.bind(_this9);
+			return _this9;
+		}
+	
+		_createClass(UpdateDialog, [{
+			key: 'handleSubmit',
+			value: function handleSubmit(e) {
+				var _this10 = this;
+	
+				e.preventDefault();
+				var updatedSailplane = {};
+				this.props.attributes.forEach(function (attribute) {
+					updatedSailplane[attribute] = ReactDOM.findDOMNode(_this10.refs[attribute]).value.trim();
+				});
+				this.props.onUpdate(this.props.sailplane, updatedSailplane);
+				window.location = "#";
+			}
+		}, {
+			key: 'render',
+			value: function render() {
+				var _this11 = this;
+	
+				var inputs = this.props.attributes.map(function (attribute) {
+					return React.createElement(
+						'p',
+						{ key: _this11.props.sailplane.entity[attribute] },
+						React.createElement('input', { type: 'text', placeholder: attribute,
+							defaultValue: _this11.props.sailplane.entity[attribute],
+							ref: attribute, className: 'field' })
+					);
+				});
+	
+				var dialogId = "updateSailplane-" + this.props.sailplane.entity._links.self.href;
+	
+				return React.createElement(
+					'div',
+					{ key: this.props.sailplane.entity._links.self.href },
+					React.createElement(
+						'a',
+						{ href: "#" + dialogId },
+						'Update'
+					),
+					React.createElement(
+						'div',
+						{ id: dialogId, className: 'modalDialog' },
+						React.createElement(
+							'div',
+							null,
+							React.createElement(
+								'a',
+								{ href: '#', title: 'Close', className: 'close' },
+								'XD'
+							),
+							React.createElement(
+								'h2',
+								null,
+								'Update a sailplane'
+							),
+							React.createElement(
+								'form',
+								null,
+								inputs,
+								React.createElement(
+									'button',
+									{ onClick: this.handleSubmit },
+									'Update'
+								)
+							)
+						)
+					)
+				);
+			}
+		}]);
+	
+		return UpdateDialog;
+	}(React.Component);
+	
+	;
+	// end::update-dialog[]
+	
 	// tag::sailplane-list[]
 	
-	
-	var SailplaneList = function (_React$Component3) {
-		_inherits(SailplaneList, _React$Component3);
+	var SailplaneList = function (_React$Component4) {
+		_inherits(SailplaneList, _React$Component4);
 	
 		function SailplaneList(props) {
 			_classCallCheck(this, SailplaneList);
 	
-			var _this8 = _possibleConstructorReturn(this, (SailplaneList.__proto__ || Object.getPrototypeOf(SailplaneList)).call(this, props));
+			var _this12 = _possibleConstructorReturn(this, (SailplaneList.__proto__ || Object.getPrototypeOf(SailplaneList)).call(this, props));
 	
-			_this8.handleNavFirst = _this8.handleNavFirst.bind(_this8);
-			_this8.handleNavPrev = _this8.handleNavPrev.bind(_this8);
-			_this8.handleNavNext = _this8.handleNavNext.bind(_this8);
-			_this8.handleNavLast = _this8.handleNavLast.bind(_this8);
-			_this8.handleInput = _this8.handleInput.bind(_this8);
-			return _this8;
+			_this12.handleNavFirst = _this12.handleNavFirst.bind(_this12);
+			_this12.handleNavPrev = _this12.handleNavPrev.bind(_this12);
+			_this12.handleNavNext = _this12.handleNavNext.bind(_this12);
+			_this12.handleNavLast = _this12.handleNavLast.bind(_this12);
+			_this12.handleInput = _this12.handleInput.bind(_this12);
+			return _this12;
 		}
 	
 		// tag::handle-page-size-updates[]
@@ -363,10 +502,14 @@
 		}, {
 			key: 'render',
 			value: function render() {
-				var _this9 = this;
+				var _this13 = this;
 	
 				var sailplanes = this.props.sailplanes.map(function (sailplane) {
-					return React.createElement(Sailplane, { key: sailplane._links.self.href, sailplane: sailplane, onDelete: _this9.props.onDelete });
+					return React.createElement(Sailplane, { key: sailplane._links.self.href,
+						sailplane: sailplane,
+						attributes: _this13.props.attributes,
+						onUpdate: _this13.props.onUpdate,
+						onDelete: _this13.props.onDelete });
 				});
 	
 				var navLinks = [];
@@ -447,6 +590,7 @@
 									null,
 									'Aspect Ratio'
 								),
+								React.createElement('th', null),
 								React.createElement('th', null)
 							),
 							sailplanes
@@ -470,16 +614,16 @@
 	// tag::sailplane[]
 	
 	
-	var Sailplane = function (_React$Component4) {
-		_inherits(Sailplane, _React$Component4);
+	var Sailplane = function (_React$Component5) {
+		_inherits(Sailplane, _React$Component5);
 	
 		function Sailplane(props) {
 			_classCallCheck(this, Sailplane);
 	
-			var _this10 = _possibleConstructorReturn(this, (Sailplane.__proto__ || Object.getPrototypeOf(Sailplane)).call(this, props));
+			var _this14 = _possibleConstructorReturn(this, (Sailplane.__proto__ || Object.getPrototypeOf(Sailplane)).call(this, props));
 	
-			_this10.handleDelete = _this10.handleDelete.bind(_this10);
-			return _this10;
+			_this14.handleDelete = _this14.handleDelete.bind(_this14);
+			return _this14;
 		}
 	
 		_createClass(Sailplane, [{
@@ -527,6 +671,13 @@
 						'td',
 						null,
 						this.props.sailplane.aspectRatio
+					),
+					React.createElement(
+						'td',
+						null,
+						React.createElement(UpdateDialog, { sailplane: this.props.sailplane,
+							attributes: this.props.attributes,
+							onUpdate: this.props.onUpdate })
 					),
 					React.createElement(
 						'td',
@@ -22285,444 +22436,6 @@
 /* 182 */
 /***/ (function(module, exports, __webpack_require__) {
 
-	'use strict';
-	
-	var rest = __webpack_require__(183);
-	var defaultRequest = __webpack_require__(211);
-	var mime = __webpack_require__(213);
-	var uriTemplateInterceptor = __webpack_require__(227);
-	var errorCode = __webpack_require__(228);
-	var baseRegistry = __webpack_require__(215);
-	
-	var registry = baseRegistry.child();
-	
-	registry.register('text/uri-list', __webpack_require__(229));
-	registry.register('application/hal+json', __webpack_require__(216));
-	
-	module.exports = rest.wrap(mime, { registry: registry }).wrap(uriTemplateInterceptor).wrap(errorCode).wrap(defaultRequest, { headers: { 'Accept': 'application/hal+json' } });
-
-/***/ }),
-/* 183 */
-/***/ (function(module, exports, __webpack_require__) {
-
-	var __WEBPACK_AMD_DEFINE_RESULT__;/*
-	 * Copyright 2014 the original author or authors
-	 * @license MIT, see LICENSE.txt for details
-	 *
-	 * @author Scott Andrews
-	 */
-	
-	(function (define) {
-		'use strict';
-	
-		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
-	
-			var rest = __webpack_require__(184),
-			    browser = __webpack_require__(187);
-	
-			rest.setPlatformDefaultClient(browser);
-	
-			return rest;
-	
-		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
-	
-	}(
-		__webpack_require__(186)
-		// Boilerplate for AMD and Node
-	));
-
-
-/***/ }),
-/* 184 */
-/***/ (function(module, exports, __webpack_require__) {
-
-	var __WEBPACK_AMD_DEFINE_RESULT__;/*
-	 * Copyright 2014 the original author or authors
-	 * @license MIT, see LICENSE.txt for details
-	 *
-	 * @author Scott Andrews
-	 */
-	
-	(function (define) {
-		'use strict';
-	
-		var undef;
-	
-		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
-	
-			/**
-			 * Plain JS Object containing properties that represent an HTTP request.
-			 *
-			 * Depending on the capabilities of the underlying client, a request
-			 * may be cancelable. If a request may be canceled, the client will add
-			 * a canceled flag and cancel function to the request object. Canceling
-			 * the request will put the response into an error state.
-			 *
-			 * @field {string} [method='GET'] HTTP method, commonly GET, POST, PUT, DELETE or HEAD
-			 * @field {string|UrlBuilder} [path=''] path template with optional path variables
-			 * @field {Object} [params] parameters for the path template and query string
-			 * @field {Object} [headers] custom HTTP headers to send, in addition to the clients default headers
-			 * @field [entity] the HTTP entity, common for POST or PUT requests
-			 * @field {boolean} [canceled] true if the request has been canceled, set by the client
-			 * @field {Function} [cancel] cancels the request if invoked, provided by the client
-			 * @field {Client} [originator] the client that first handled this request, provided by the interceptor
-			 *
-			 * @class Request
-			 */
-	
-			/**
-			 * Plain JS Object containing properties that represent an HTTP response
-			 *
-			 * @field {Object} [request] the request object as received by the root client
-			 * @field {Object} [raw] the underlying request object, like XmlHttpRequest in a browser
-			 * @field {number} [status.code] status code of the response (i.e. 200, 404)
-			 * @field {string} [status.text] status phrase of the response
-			 * @field {Object] [headers] response headers hash of normalized name, value pairs
-			 * @field [entity] the response body
-			 *
-			 * @class Response
-			 */
-	
-			/**
-			 * HTTP client particularly suited for RESTful operations.
-			 *
-			 * @field {function} wrap wraps this client with a new interceptor returning the wrapped client
-			 *
-			 * @param {Request} the HTTP request
-			 * @returns {ResponsePromise<Response>} a promise the resolves to the HTTP response
-			 *
-			 * @class Client
-			 */
-	
-			 /**
-			  * Extended when.js Promises/A+ promise with HTTP specific helpers
-			  *q
-			  * @method entity promise for the HTTP entity
-			  * @method status promise for the HTTP status code
-			  * @method headers promise for the HTTP response headers
-			  * @method header promise for a specific HTTP response header
-			  *
-			  * @class ResponsePromise
-			  * @extends Promise
-			  */
-	
-			var client, target, platformDefault;
-	
-			client = __webpack_require__(185);
-	
-			/**
-			 * Make a request with the default client
-			 * @param {Request} the HTTP request
-			 * @returns {Promise<Response>} a promise the resolves to the HTTP response
-			 */
-			function defaultClient() {
-				return target.apply(undef, arguments);
-			}
-	
-			/**
-			 * Change the default client
-			 * @param {Client} client the new default client
-			 */
-			defaultClient.setDefaultClient = function setDefaultClient(client) {
-				target = client;
-			};
-	
-			/**
-			 * Obtain a direct reference to the current default client
-			 * @returns {Client} the default client
-			 */
-			defaultClient.getDefaultClient = function getDefaultClient() {
-				return target;
-			};
-	
-			/**
-			 * Reset the default client to the platform default
-			 */
-			defaultClient.resetDefaultClient = function resetDefaultClient() {
-				target = platformDefault;
-			};
-	
-			/**
-			 * @private
-			 */
-			defaultClient.setPlatformDefaultClient = function setPlatformDefaultClient(client) {
-				if (platformDefault) {
-					throw new Error('Unable to redefine platformDefaultClient');
-				}
-				target = platformDefault = client;
-			};
-	
-			return client(defaultClient);
-	
-		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
-	
-	}(
-		__webpack_require__(186)
-		// Boilerplate for AMD and Node
-	));
-
-
-/***/ }),
-/* 185 */
-/***/ (function(module, exports, __webpack_require__) {
-
-	var __WEBPACK_AMD_DEFINE_RESULT__;/*
-	 * Copyright 2014 the original author or authors
-	 * @license MIT, see LICENSE.txt for details
-	 *
-	 * @author Scott Andrews
-	 */
-	
-	(function (define) {
-		'use strict';
-	
-		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (/* require */) {
-	
-			/**
-			 * Add common helper methods to a client impl
-			 *
-			 * @param {function} impl the client implementation
-			 * @param {Client} [target] target of this client, used when wrapping other clients
-			 * @returns {Client} the client impl with additional methods
-			 */
-			return function client(impl, target) {
-	
-				if (target) {
-	
-					/**
-					 * @returns {Client} the target client
-					 */
-					impl.skip = function skip() {
-						return target;
-					};
-	
-				}
-	
-				/**
-				 * Allow a client to easily be wrapped by an interceptor
-				 *
-				 * @param {Interceptor} interceptor the interceptor to wrap this client with
-				 * @param [config] configuration for the interceptor
-				 * @returns {Client} the newly wrapped client
-				 */
-				impl.wrap = function wrap(interceptor, config) {
-					return interceptor(impl, config);
-				};
-	
-				/**
-				 * @deprecated
-				 */
-				impl.chain = function chain() {
-					if (typeof console !== 'undefined') {
-						console.log('rest.js: client.chain() is deprecated, use client.wrap() instead');
-					}
-	
-					return impl.wrap.apply(this, arguments);
-				};
-	
-				return impl;
-	
-			};
-	
-		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
-	
-	}(
-		__webpack_require__(186)
-		// Boilerplate for AMD and Node
-	));
-
-
-/***/ }),
-/* 186 */
-/***/ (function(module, exports) {
-
-	module.exports = function() { throw new Error("define cannot be used indirect"); };
-
-
-/***/ }),
-/* 187 */
-/***/ (function(module, exports, __webpack_require__) {
-
-	var __WEBPACK_AMD_DEFINE_RESULT__;/*
-	 * Copyright 2012-2014 the original author or authors
-	 * @license MIT, see LICENSE.txt for details
-	 *
-	 * @author Scott Andrews
-	 */
-	
-	(function (define, global) {
-		'use strict';
-	
-		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
-	
-			var when, UrlBuilder, normalizeHeaderName, responsePromise, client, headerSplitRE;
-	
-			when = __webpack_require__(188);
-			UrlBuilder = __webpack_require__(207);
-			normalizeHeaderName = __webpack_require__(209);
-			responsePromise = __webpack_require__(210);
-			client = __webpack_require__(185);
-	
-			// according to the spec, the line break is '\r\n', but doesn't hold true in practice
-			headerSplitRE = /[\r|\n]+/;
-	
-			function parseHeaders(raw) {
-				// Note: Set-Cookie will be removed by the browser
-				var headers = {};
-	
-				if (!raw) { return headers; }
-	
-				raw.trim().split(headerSplitRE).forEach(function (header) {
-					var boundary, name, value;
-					boundary = header.indexOf(':');
-					name = normalizeHeaderName(header.substring(0, boundary).trim());
-					value = header.substring(boundary + 1).trim();
-					if (headers[name]) {
-						if (Array.isArray(headers[name])) {
-							// add to an existing array
-							headers[name].push(value);
-						}
-						else {
-							// convert single value to array
-							headers[name] = [headers[name], value];
-						}
-					}
-					else {
-						// new, single value
-						headers[name] = value;
-					}
-				});
-	
-				return headers;
-			}
-	
-			function safeMixin(target, source) {
-				Object.keys(source || {}).forEach(function (prop) {
-					// make sure the property already exists as
-					// IE 6 will blow up if we add a new prop
-					if (source.hasOwnProperty(prop) && prop in target) {
-						try {
-							target[prop] = source[prop];
-						}
-						catch (e) {
-							// ignore, expected for some properties at some points in the request lifecycle
-						}
-					}
-				});
-	
-				return target;
-			}
-	
-			return client(function xhr(request) {
-				return responsePromise.promise(function (resolve, reject) {
-					/*jshint maxcomplexity:20 */
-	
-					var client, method, url, headers, entity, headerName, response, XMLHttpRequest;
-	
-					request = typeof request === 'string' ? { path: request } : request || {};
-					response = { request: request };
-	
-					if (request.canceled) {
-						response.error = 'precanceled';
-						reject(response);
-						return;
-					}
-	
-					entity = request.entity;
-					request.method = request.method || (entity ? 'POST' : 'GET');
-					method = request.method;
-					url = response.url = new UrlBuilder(request.path || '', request.params).build();
-	
-					XMLHttpRequest = request.engine || global.XMLHttpRequest;
-					if (!XMLHttpRequest) {
-						reject({ request: request, url: url, error: 'xhr-not-available' });
-						return;
-					}
-	
-					try {
-						client = response.raw = new XMLHttpRequest();
-	
-						// mixin extra request properties before and after opening the request as some properties require being set at different phases of the request
-						safeMixin(client, request.mixin);
-						client.open(method, url, true);
-						safeMixin(client, request.mixin);
-	
-						headers = request.headers;
-						for (headerName in headers) {
-							/*jshint forin:false */
-							if (headerName === 'Content-Type' && headers[headerName] === 'multipart/form-data') {
-								// XMLHttpRequest generates its own Content-Type header with the
-								// appropriate multipart boundary when sending multipart/form-data.
-								continue;
-							}
-	
-							client.setRequestHeader(headerName, headers[headerName]);
-						}
-	
-						request.canceled = false;
-						request.cancel = function cancel() {
-							request.canceled = true;
-							client.abort();
-							reject(response);
-						};
-	
-						client.onreadystatechange = function (/* e */) {
-							if (request.canceled) { return; }
-							if (client.readyState === (XMLHttpRequest.DONE || 4)) {
-								response.status = {
-									code: client.status,
-									text: client.statusText
-								};
-								response.headers = parseHeaders(client.getAllResponseHeaders());
-								response.entity = client.responseText;
-	
-								if (response.status.code > 0) {
-									// check status code as readystatechange fires before error event
-									resolve(response);
-								}
-								else {
-									// give the error callback a chance to fire before resolving
-									// requests for file:// URLs do not have a status code
-									setTimeout(function () {
-										resolve(response);
-									}, 0);
-								}
-							}
-						};
-	
-						try {
-							client.onerror = function (/* e */) {
-								response.error = 'loaderror';
-								reject(response);
-							};
-						}
-						catch (e) {
-							// IE 6 will not support error handling
-						}
-	
-						client.send(entity);
-					}
-					catch (e) {
-						response.error = 'loaderror';
-						reject(response);
-					}
-	
-				});
-			});
-	
-		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
-	
-	}(
-		__webpack_require__(186),
-		typeof window !== 'undefined' ? window : void 0
-		// Boilerplate for AMD and Node
-	));
-
-
-/***/ }),
-/* 188 */
-/***/ (function(module, exports, __webpack_require__) {
-
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
 	
 	/**
@@ -22734,24 +22447,24 @@
 	(function(define) { 'use strict';
 	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 	
-		var timed = __webpack_require__(189);
-		var array = __webpack_require__(193);
-		var flow = __webpack_require__(196);
-		var fold = __webpack_require__(197);
-		var inspect = __webpack_require__(198);
-		var generate = __webpack_require__(199);
-		var progress = __webpack_require__(200);
-		var withThis = __webpack_require__(201);
-		var unhandledRejection = __webpack_require__(202);
-		var TimeoutError = __webpack_require__(192);
+		var timed = __webpack_require__(183);
+		var array = __webpack_require__(188);
+		var flow = __webpack_require__(191);
+		var fold = __webpack_require__(192);
+		var inspect = __webpack_require__(193);
+		var generate = __webpack_require__(194);
+		var progress = __webpack_require__(195);
+		var withThis = __webpack_require__(196);
+		var unhandledRejection = __webpack_require__(197);
+		var TimeoutError = __webpack_require__(187);
 	
 		var Promise = [array, flow, fold, generate, progress,
 			inspect, withThis, timed, unhandledRejection]
 			.reduce(function(Promise, feature) {
 				return feature(Promise);
-			}, __webpack_require__(204));
+			}, __webpack_require__(199));
 	
-		var apply = __webpack_require__(195)(Promise);
+		var apply = __webpack_require__(190)(Promise);
 	
 		// Public API
 	
@@ -22954,7 +22667,7 @@
 
 
 /***/ }),
-/* 189 */
+/* 183 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -22964,8 +22677,8 @@
 	(function(define) { 'use strict';
 	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 	
-		var env = __webpack_require__(190);
-		var TimeoutError = __webpack_require__(192);
+		var env = __webpack_require__(184);
+		var TimeoutError = __webpack_require__(187);
 	
 		function setTimeout(f, ms, x, y) {
 			return env.setTimer(function() {
@@ -23038,7 +22751,7 @@
 
 
 /***/ }),
-/* 190 */
+/* 184 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;var require;/* WEBPACK VAR INJECTION */(function(process) {/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23072,7 +22785,7 @@
 	
 		} else if (!capturedSetTimeout) { // vert.x
 			var vertxRequire = require;
-			var vertx = __webpack_require__(191);
+			var vertx = __webpack_require__(185);
 			setTimer = function (f, ms) { return vertx.setTimer(ms, f); };
 			clearTimer = vertx.cancelTimer;
 			asap = vertx.runOnLoop || vertx.runOnContext;
@@ -23118,13 +22831,20 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(3)))
 
 /***/ }),
-/* 191 */
+/* 185 */
 /***/ (function(module, exports) {
 
 	/* (ignored) */
 
 /***/ }),
-/* 192 */
+/* 186 */
+/***/ (function(module, exports) {
+
+	module.exports = function() { throw new Error("define cannot be used indirect"); };
+
+
+/***/ }),
+/* 187 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23156,7 +22876,7 @@
 	}(__webpack_require__(186)));
 
 /***/ }),
-/* 193 */
+/* 188 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23166,8 +22886,8 @@
 	(function(define) { 'use strict';
 	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 	
-		var state = __webpack_require__(194);
-		var applier = __webpack_require__(195);
+		var state = __webpack_require__(189);
+		var applier = __webpack_require__(190);
 	
 		return function array(Promise) {
 	
@@ -23461,7 +23181,7 @@
 
 
 /***/ }),
-/* 194 */
+/* 189 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23502,7 +23222,7 @@
 
 
 /***/ }),
-/* 195 */
+/* 190 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23563,7 +23283,7 @@
 
 
 /***/ }),
-/* 196 */
+/* 191 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23729,7 +23449,7 @@
 
 
 /***/ }),
-/* 197 */
+/* 192 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23762,7 +23482,7 @@
 
 
 /***/ }),
-/* 198 */
+/* 193 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23772,7 +23492,7 @@
 	(function(define) { 'use strict';
 	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 	
-		var inspect = __webpack_require__(194).inspect;
+		var inspect = __webpack_require__(189).inspect;
 	
 		return function inspection(Promise) {
 	
@@ -23788,7 +23508,7 @@
 
 
 /***/ }),
-/* 199 */
+/* 194 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23859,7 +23579,7 @@
 
 
 /***/ }),
-/* 200 */
+/* 195 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23889,7 +23609,7 @@
 
 
 /***/ }),
-/* 201 */
+/* 196 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23933,7 +23653,7 @@
 
 
 /***/ }),
-/* 202 */
+/* 197 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -23943,8 +23663,8 @@
 	(function(define) { 'use strict';
 	!(__WEBPACK_AMD_DEFINE_RESULT__ = function(require) {
 	
-		var setTimer = __webpack_require__(190).setTimer;
-		var format = __webpack_require__(203);
+		var setTimer = __webpack_require__(184).setTimer;
+		var format = __webpack_require__(198);
 	
 		return function unhandledRejection(Promise) {
 	
@@ -24025,7 +23745,7 @@
 
 
 /***/ }),
-/* 203 */
+/* 198 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -24087,7 +23807,7 @@
 
 
 /***/ }),
-/* 204 */
+/* 199 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -24097,9 +23817,9 @@
 	(function(define) { 'use strict';
 	!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 	
-		var makePromise = __webpack_require__(205);
-		var Scheduler = __webpack_require__(206);
-		var async = __webpack_require__(190).asap;
+		var makePromise = __webpack_require__(200);
+		var Scheduler = __webpack_require__(201);
+		var async = __webpack_require__(184).asap;
 	
 		return makePromise({
 			scheduler: new Scheduler(async)
@@ -24110,7 +23830,7 @@
 
 
 /***/ }),
-/* 205 */
+/* 200 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/* WEBPACK VAR INJECTION */(function(process) {/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -25072,7 +24792,7 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(3)))
 
 /***/ }),
-/* 206 */
+/* 201 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/** @license MIT License (c) copyright 2010-2014 original author or authors */
@@ -25155,6 +24875,437 @@
 	
 	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 	}(__webpack_require__(186)));
+
+
+/***/ }),
+/* 202 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var rest = __webpack_require__(203);
+	var defaultRequest = __webpack_require__(211);
+	var mime = __webpack_require__(213);
+	var uriTemplateInterceptor = __webpack_require__(227);
+	var errorCode = __webpack_require__(228);
+	var baseRegistry = __webpack_require__(215);
+	
+	var registry = baseRegistry.child();
+	
+	registry.register('text/uri-list', __webpack_require__(229));
+	registry.register('application/hal+json', __webpack_require__(216));
+	
+	module.exports = rest.wrap(mime, { registry: registry }).wrap(uriTemplateInterceptor).wrap(errorCode).wrap(defaultRequest, { headers: { 'Accept': 'application/hal+json' } });
+
+/***/ }),
+/* 203 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	var __WEBPACK_AMD_DEFINE_RESULT__;/*
+	 * Copyright 2014 the original author or authors
+	 * @license MIT, see LICENSE.txt for details
+	 *
+	 * @author Scott Andrews
+	 */
+	
+	(function (define) {
+		'use strict';
+	
+		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	
+			var rest = __webpack_require__(204),
+			    browser = __webpack_require__(206);
+	
+			rest.setPlatformDefaultClient(browser);
+	
+			return rest;
+	
+		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	
+	}(
+		__webpack_require__(186)
+		// Boilerplate for AMD and Node
+	));
+
+
+/***/ }),
+/* 204 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	var __WEBPACK_AMD_DEFINE_RESULT__;/*
+	 * Copyright 2014 the original author or authors
+	 * @license MIT, see LICENSE.txt for details
+	 *
+	 * @author Scott Andrews
+	 */
+	
+	(function (define) {
+		'use strict';
+	
+		var undef;
+	
+		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	
+			/**
+			 * Plain JS Object containing properties that represent an HTTP request.
+			 *
+			 * Depending on the capabilities of the underlying client, a request
+			 * may be cancelable. If a request may be canceled, the client will add
+			 * a canceled flag and cancel function to the request object. Canceling
+			 * the request will put the response into an error state.
+			 *
+			 * @field {string} [method='GET'] HTTP method, commonly GET, POST, PUT, DELETE or HEAD
+			 * @field {string|UrlBuilder} [path=''] path template with optional path variables
+			 * @field {Object} [params] parameters for the path template and query string
+			 * @field {Object} [headers] custom HTTP headers to send, in addition to the clients default headers
+			 * @field [entity] the HTTP entity, common for POST or PUT requests
+			 * @field {boolean} [canceled] true if the request has been canceled, set by the client
+			 * @field {Function} [cancel] cancels the request if invoked, provided by the client
+			 * @field {Client} [originator] the client that first handled this request, provided by the interceptor
+			 *
+			 * @class Request
+			 */
+	
+			/**
+			 * Plain JS Object containing properties that represent an HTTP response
+			 *
+			 * @field {Object} [request] the request object as received by the root client
+			 * @field {Object} [raw] the underlying request object, like XmlHttpRequest in a browser
+			 * @field {number} [status.code] status code of the response (i.e. 200, 404)
+			 * @field {string} [status.text] status phrase of the response
+			 * @field {Object] [headers] response headers hash of normalized name, value pairs
+			 * @field [entity] the response body
+			 *
+			 * @class Response
+			 */
+	
+			/**
+			 * HTTP client particularly suited for RESTful operations.
+			 *
+			 * @field {function} wrap wraps this client with a new interceptor returning the wrapped client
+			 *
+			 * @param {Request} the HTTP request
+			 * @returns {ResponsePromise<Response>} a promise the resolves to the HTTP response
+			 *
+			 * @class Client
+			 */
+	
+			 /**
+			  * Extended when.js Promises/A+ promise with HTTP specific helpers
+			  *q
+			  * @method entity promise for the HTTP entity
+			  * @method status promise for the HTTP status code
+			  * @method headers promise for the HTTP response headers
+			  * @method header promise for a specific HTTP response header
+			  *
+			  * @class ResponsePromise
+			  * @extends Promise
+			  */
+	
+			var client, target, platformDefault;
+	
+			client = __webpack_require__(205);
+	
+			/**
+			 * Make a request with the default client
+			 * @param {Request} the HTTP request
+			 * @returns {Promise<Response>} a promise the resolves to the HTTP response
+			 */
+			function defaultClient() {
+				return target.apply(undef, arguments);
+			}
+	
+			/**
+			 * Change the default client
+			 * @param {Client} client the new default client
+			 */
+			defaultClient.setDefaultClient = function setDefaultClient(client) {
+				target = client;
+			};
+	
+			/**
+			 * Obtain a direct reference to the current default client
+			 * @returns {Client} the default client
+			 */
+			defaultClient.getDefaultClient = function getDefaultClient() {
+				return target;
+			};
+	
+			/**
+			 * Reset the default client to the platform default
+			 */
+			defaultClient.resetDefaultClient = function resetDefaultClient() {
+				target = platformDefault;
+			};
+	
+			/**
+			 * @private
+			 */
+			defaultClient.setPlatformDefaultClient = function setPlatformDefaultClient(client) {
+				if (platformDefault) {
+					throw new Error('Unable to redefine platformDefaultClient');
+				}
+				target = platformDefault = client;
+			};
+	
+			return client(defaultClient);
+	
+		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	
+	}(
+		__webpack_require__(186)
+		// Boilerplate for AMD and Node
+	));
+
+
+/***/ }),
+/* 205 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	var __WEBPACK_AMD_DEFINE_RESULT__;/*
+	 * Copyright 2014 the original author or authors
+	 * @license MIT, see LICENSE.txt for details
+	 *
+	 * @author Scott Andrews
+	 */
+	
+	(function (define) {
+		'use strict';
+	
+		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (/* require */) {
+	
+			/**
+			 * Add common helper methods to a client impl
+			 *
+			 * @param {function} impl the client implementation
+			 * @param {Client} [target] target of this client, used when wrapping other clients
+			 * @returns {Client} the client impl with additional methods
+			 */
+			return function client(impl, target) {
+	
+				if (target) {
+	
+					/**
+					 * @returns {Client} the target client
+					 */
+					impl.skip = function skip() {
+						return target;
+					};
+	
+				}
+	
+				/**
+				 * Allow a client to easily be wrapped by an interceptor
+				 *
+				 * @param {Interceptor} interceptor the interceptor to wrap this client with
+				 * @param [config] configuration for the interceptor
+				 * @returns {Client} the newly wrapped client
+				 */
+				impl.wrap = function wrap(interceptor, config) {
+					return interceptor(impl, config);
+				};
+	
+				/**
+				 * @deprecated
+				 */
+				impl.chain = function chain() {
+					if (typeof console !== 'undefined') {
+						console.log('rest.js: client.chain() is deprecated, use client.wrap() instead');
+					}
+	
+					return impl.wrap.apply(this, arguments);
+				};
+	
+				return impl;
+	
+			};
+	
+		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	
+	}(
+		__webpack_require__(186)
+		// Boilerplate for AMD and Node
+	));
+
+
+/***/ }),
+/* 206 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	var __WEBPACK_AMD_DEFINE_RESULT__;/*
+	 * Copyright 2012-2014 the original author or authors
+	 * @license MIT, see LICENSE.txt for details
+	 *
+	 * @author Scott Andrews
+	 */
+	
+	(function (define, global) {
+		'use strict';
+	
+		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
+	
+			var when, UrlBuilder, normalizeHeaderName, responsePromise, client, headerSplitRE;
+	
+			when = __webpack_require__(182);
+			UrlBuilder = __webpack_require__(207);
+			normalizeHeaderName = __webpack_require__(209);
+			responsePromise = __webpack_require__(210);
+			client = __webpack_require__(205);
+	
+			// according to the spec, the line break is '\r\n', but doesn't hold true in practice
+			headerSplitRE = /[\r|\n]+/;
+	
+			function parseHeaders(raw) {
+				// Note: Set-Cookie will be removed by the browser
+				var headers = {};
+	
+				if (!raw) { return headers; }
+	
+				raw.trim().split(headerSplitRE).forEach(function (header) {
+					var boundary, name, value;
+					boundary = header.indexOf(':');
+					name = normalizeHeaderName(header.substring(0, boundary).trim());
+					value = header.substring(boundary + 1).trim();
+					if (headers[name]) {
+						if (Array.isArray(headers[name])) {
+							// add to an existing array
+							headers[name].push(value);
+						}
+						else {
+							// convert single value to array
+							headers[name] = [headers[name], value];
+						}
+					}
+					else {
+						// new, single value
+						headers[name] = value;
+					}
+				});
+	
+				return headers;
+			}
+	
+			function safeMixin(target, source) {
+				Object.keys(source || {}).forEach(function (prop) {
+					// make sure the property already exists as
+					// IE 6 will blow up if we add a new prop
+					if (source.hasOwnProperty(prop) && prop in target) {
+						try {
+							target[prop] = source[prop];
+						}
+						catch (e) {
+							// ignore, expected for some properties at some points in the request lifecycle
+						}
+					}
+				});
+	
+				return target;
+			}
+	
+			return client(function xhr(request) {
+				return responsePromise.promise(function (resolve, reject) {
+					/*jshint maxcomplexity:20 */
+	
+					var client, method, url, headers, entity, headerName, response, XMLHttpRequest;
+	
+					request = typeof request === 'string' ? { path: request } : request || {};
+					response = { request: request };
+	
+					if (request.canceled) {
+						response.error = 'precanceled';
+						reject(response);
+						return;
+					}
+	
+					entity = request.entity;
+					request.method = request.method || (entity ? 'POST' : 'GET');
+					method = request.method;
+					url = response.url = new UrlBuilder(request.path || '', request.params).build();
+	
+					XMLHttpRequest = request.engine || global.XMLHttpRequest;
+					if (!XMLHttpRequest) {
+						reject({ request: request, url: url, error: 'xhr-not-available' });
+						return;
+					}
+	
+					try {
+						client = response.raw = new XMLHttpRequest();
+	
+						// mixin extra request properties before and after opening the request as some properties require being set at different phases of the request
+						safeMixin(client, request.mixin);
+						client.open(method, url, true);
+						safeMixin(client, request.mixin);
+	
+						headers = request.headers;
+						for (headerName in headers) {
+							/*jshint forin:false */
+							if (headerName === 'Content-Type' && headers[headerName] === 'multipart/form-data') {
+								// XMLHttpRequest generates its own Content-Type header with the
+								// appropriate multipart boundary when sending multipart/form-data.
+								continue;
+							}
+	
+							client.setRequestHeader(headerName, headers[headerName]);
+						}
+	
+						request.canceled = false;
+						request.cancel = function cancel() {
+							request.canceled = true;
+							client.abort();
+							reject(response);
+						};
+	
+						client.onreadystatechange = function (/* e */) {
+							if (request.canceled) { return; }
+							if (client.readyState === (XMLHttpRequest.DONE || 4)) {
+								response.status = {
+									code: client.status,
+									text: client.statusText
+								};
+								response.headers = parseHeaders(client.getAllResponseHeaders());
+								response.entity = client.responseText;
+	
+								if (response.status.code > 0) {
+									// check status code as readystatechange fires before error event
+									resolve(response);
+								}
+								else {
+									// give the error callback a chance to fire before resolving
+									// requests for file:// URLs do not have a status code
+									setTimeout(function () {
+										resolve(response);
+									}, 0);
+								}
+							}
+						};
+	
+						try {
+							client.onerror = function (/* e */) {
+								response.error = 'loaderror';
+								reject(response);
+							};
+						}
+						catch (e) {
+							// IE 6 will not support error handling
+						}
+	
+						client.send(entity);
+					}
+					catch (e) {
+						response.error = 'loaderror';
+						reject(response);
+					}
+	
+				});
+			});
+	
+		}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	
+	}(
+		__webpack_require__(186),
+		typeof window !== 'undefined' ? window : void 0
+		// Boilerplate for AMD and Node
+	));
 
 
 /***/ }),
@@ -25506,7 +25657,7 @@
 	
 		!(__WEBPACK_AMD_DEFINE_RESULT__ = function (require) {
 	
-			var when = __webpack_require__(188),
+			var when = __webpack_require__(182),
 				normalizeHeaderName = __webpack_require__(209);
 	
 			function property(promise, name) {
@@ -25739,11 +25890,11 @@
 	
 			var defaultClient, mixin, responsePromise, client, when;
 	
-			defaultClient = __webpack_require__(184);
+			defaultClient = __webpack_require__(204);
 			mixin = __webpack_require__(208);
 			responsePromise = __webpack_require__(210);
-			client = __webpack_require__(185);
-			when = __webpack_require__(188);
+			client = __webpack_require__(205);
+			when = __webpack_require__(182);
 	
 			/**
 			 * Interceptors have the ability to intercept the request and/org response
@@ -25913,7 +26064,7 @@
 			interceptor = __webpack_require__(212);
 			mime = __webpack_require__(214);
 			registry = __webpack_require__(215);
-			when = __webpack_require__(188);
+			when = __webpack_require__(182);
 	
 			noopConverter = {
 				read: function (obj) { return obj; },
@@ -26086,7 +26237,7 @@
 			var mime, when, registry;
 	
 			mime = __webpack_require__(214);
-			when = __webpack_require__(188);
+			when = __webpack_require__(182);
 	
 			function Registry(mimes) {
 	
@@ -26211,7 +26362,7 @@
 			find = __webpack_require__(221);
 			lazyPromise = __webpack_require__(222);
 			responsePromise = __webpack_require__(210);
-			when = __webpack_require__(188);
+			when = __webpack_require__(182);
 	
 			function defineProperty(obj, name, value) {
 				Object.defineProperty(obj, name, {
@@ -26889,7 +27040,7 @@
 	
 			var when;
 	
-			when = __webpack_require__(188);
+			when = __webpack_require__(182);
 	
 			/**
 			 * Create a promise whose work is started only when a handler is registered.
@@ -27238,7 +27389,7 @@
 			var interceptor, when;
 	
 			interceptor = __webpack_require__(212);
-			when = __webpack_require__(188);
+			when = __webpack_require__(182);
 	
 			/**
 			 * Rejects the response promise based on the status code.

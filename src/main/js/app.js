@@ -2,6 +2,7 @@
 // tag::vars[]
 const React = require('react');
 const ReactDOM = require('react-dom')
+const when = require('when');
 const client = require('./client');
 const follow = require('./follow'); // function to hop multiple links by "rel"
 const root = '/api';
@@ -15,6 +16,7 @@ class App extends React.Component {
 		this.state = {sailplanes: [], attributes: [], pageSize: 2, links: {}};
 		this.updatePageSize = this.updatePageSize.bind(this);
 		this.onCreate = this.onCreate.bind(this);
+		this.onUpdate = this.onUpdate.bind(this);
 		this.onDelete = this.onDelete.bind(this);
 		this.onNavigate = this.onNavigate.bind(this);
 	}
@@ -30,14 +32,25 @@ class App extends React.Component {
 				headers: {'Accept': 'application/schema+json'}
 			}).then(schema => {
 				this.schema = schema.entity;
+				this.links = sailplaneCollection.entity._links;
 				return sailplaneCollection;
 			});
-		}).done(sailplaneCollection => {
+		}).then(sailplaneCollection => {
+			return sailplaneCollection.entity._embedded.sailplanes.map(sailplane =>
+				client({
+					method: 'GET',
+					path: sailplane._links.self.href
+				})
+			);
+		}).then(sailplanePromises => {
+			return when.all(sailplanePromises);
+		}).done(sailplanes => {
 			this.setState({
-				sailplanes: sailplaneCollection.entity._embedded.sailplanes,
+				sailplanes: sailplanes,
 				attributes: Object.keys(this.schema.properties),
 				pageSize: pageSize,
-				links: sailplaneCollection.entity._links});
+				links: this.links
+			});
 		});
 	}
 	// end::follow-2[]
@@ -64,6 +77,27 @@ class App extends React.Component {
 	}
 	// end::create[]
 
+	// tag::update[]
+	onUpdate(sailplane, updatedSailplane) {
+		client({
+			method: 'PUT',
+			path: sailplane.entity._links.self.href,
+			entity: updatedSailplane,
+			headers: {
+				'Content-Type': 'application/json',
+				'If-Match': sailplane.headers.Etag
+			}
+		}).done(response => {
+			this.loadFromServer(this.state.pageSize);
+		}, response => {
+			if (response.status.code === 412) {
+				alert('DENIED: Unable to update ' +
+					sailplane.entity._links.self.href + '. Your copy is stale.');
+			}
+		});
+	}
+	// end::update[]
+
 	// tag::delete[]
 	onDelete(sailplane) {
 		client({method: 'DELETE', path: sailplane._links.self.href}).done(response => {
@@ -74,12 +108,26 @@ class App extends React.Component {
 
 	// tag::navigate[]
 	onNavigate(navUri) {
-		client({method: 'GET', path: navUri}).done(sailplaneCollection => {
+		client({
+			method: 'GET',
+			path: navUri
+		}).then(sailplaneCollection => {
+			this.links = sailplaneCollection.entity._links;
+
+			return sailplaneCollection.entity._embedded.sailplanes.map(sailplane =>
+					client({
+						method: 'GET',
+						path: sailplane._links.self.href
+					})
+			);
+		}).then(sailplanePromises => {
+			return when.all(sailplanePromises);
+		}).done(sailplanes => {
 			this.setState({
-				sailplanes: sailplaneCollection.entity._embedded.sailplanes,
-				attributes: this.state.attributes,
+				sailplanes: sailplanes,
+				attributes: Object.keys(this.schema.properties),
 				pageSize: this.state.pageSize,
-				links: sailplaneCollection.entity._links
+				links: this.links
 			});
 		});
 	}
@@ -106,7 +154,9 @@ class App extends React.Component {
 				<SailplaneList sailplanes={this.state.sailplanes}
 							  links={this.state.links}
 							  pageSize={this.state.pageSize}
+							  attributes={this.state.attributes}
 							  onNavigate={this.onNavigate}
+							  onUpdate={this.onUpdate}
 							  onDelete={this.onDelete}
 							  updatePageSize={this.updatePageSize}/>
 			</div>
@@ -130,14 +180,10 @@ class CreateDialog extends React.Component {
 			newSailplane[attribute] = ReactDOM.findDOMNode(this.refs[attribute]).value.trim();
 		});
 		this.props.onCreate(newSailplane);
-
-		// clear out the dialog's inputs
 		this.props.attributes.forEach(attribute => {
-			ReactDOM.findDOMNode(this.refs[attribute]).value = '';
+			ReactDOM.findDOMNode(this.refs[attribute]).value = ''; // clear out the dialog's inputs
 		});
-
-		// Navigate away from the dialog to hide it.
-		window.location = "#";
+		window.location = "#"; // Navigate away from the dialog to hide it.
 	}
 
 	render() {
@@ -146,14 +192,13 @@ class CreateDialog extends React.Component {
 				<input type="text" placeholder={attribute} ref={attribute} className="field" />
 			</p>
 		);
-
 		return (
 			<div>
 				<a href="#createSailplane">Create</a>
 
 				<div id="createSailplane" className="modalDialog">
 					<div>
-						<a href="#" title="Close" className="close">X</a>
+						<a href="#" title="Close" className="close">X(</a>
 
 						<h2>Create new sailplane</h2>
 
@@ -166,9 +211,59 @@ class CreateDialog extends React.Component {
 			</div>
 		)
 	}
-
 }
 // end::create-dialog[]
+
+// tag::update-dialog[]
+class UpdateDialog extends React.Component {
+
+	constructor(props) {
+		super(props);
+		this.handleSubmit = this.handleSubmit.bind(this);
+	}
+
+	handleSubmit(e) {
+		e.preventDefault();
+		var updatedSailplane = {};
+		this.props.attributes.forEach(attribute => {
+			updatedSailplane[attribute] = ReactDOM.findDOMNode(this.refs[attribute]).value.trim();
+		});
+		this.props.onUpdate(this.props.sailplane, updatedSailplane);
+		window.location = "#";
+	}
+
+	render() {
+		var inputs = this.props.attributes.map(attribute =>
+				<p key={this.props.sailplane.entity[attribute]}>
+					<input type="text" placeholder={attribute}
+						   defaultValue={this.props.sailplane.entity[attribute]}
+						   ref={attribute} className="field" />
+				</p>
+		);
+
+		var dialogId = "updateSailplane-" + this.props.sailplane.entity._links.self.href;
+
+		return (
+			<div key={this.props.sailplane.entity._links.self.href}>
+				<a href={"#" + dialogId}>Update</a>
+				<div id={dialogId} className="modalDialog">
+					<div>
+						<a href="#" title="Close" className="close">XD</a>
+
+						<h2>Update a sailplane</h2>
+
+						<form>
+							{inputs}
+							<button onClick={this.handleSubmit}>Update</button>
+						</form>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+};
+// end::update-dialog[]
 
 // tag::sailplane-list[]
 class SailplaneList extends React.Component{
@@ -220,7 +315,11 @@ class SailplaneList extends React.Component{
 	// tag::sailplane-list-render[]
 	render() {
 		var sailplanes = this.props.sailplanes.map(sailplane =>
-			<Sailplane key={sailplane._links.self.href} sailplane={sailplane} onDelete={this.props.onDelete}/>
+			<Sailplane 	key={sailplane._links.self.href} 
+						sailplane={sailplane} 
+						attributes={this.props.attributes} 
+						onUpdate={this.props.onUpdate} 
+						onDelete={this.props.onDelete}/>
 		);
 
 		var navLinks = [];
@@ -250,6 +349,7 @@ class SailplaneList extends React.Component{
 							<th>Wing Area</th>
 							<th>Wing Loading</th>
 							<th>Aspect Ratio</th>
+							<th></th>
 							<th></th>
 						</tr>
 						{sailplanes}
@@ -287,6 +387,11 @@ class Sailplane extends React.Component{
 				<td>{this.props.sailplane.wingArea}</td>
 				<td>{this.props.sailplane.wingLoading}</td>
 				<td>{this.props.sailplane.aspectRatio}</td>
+				<td>
+					<UpdateDialog sailplane={this.props.sailplane}
+								  attributes={this.props.attributes}
+								  onUpdate={this.props.onUpdate}/>
+				</td>
 				<td>
 					<button onClick={this.handleDelete}>Delete</button>
 				</td>
