@@ -18,8 +18,11 @@ package com.polvinen.sailplanes;
 import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
+import javax.persistence.Version;
 
 import lombok.Data;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 // tag::code[]
 @Data
@@ -34,6 +37,7 @@ public class Sailplane {
     private String wingArea;
     private String wingLoading;
     private String aspectRatio;
+    private @Version @JsonIgnore Long version;
 
 	private Sailplane() {}
 
