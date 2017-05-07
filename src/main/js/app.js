@@ -5,6 +5,7 @@ const ReactDOM = require('react-dom')
 const when = require('when');
 const client = require('./client');
 const follow = require('./follow'); // function to hop multiple links by "rel"
+const stompClient = require('./websocket-listener');
 const root = '/api';
 // end::vars[]
 
@@ -13,12 +14,14 @@ class App extends React.Component {
 
 	constructor(props) {
 		super(props);
-		this.state = {sailplanes: [], attributes: [], pageSize: 2, links: {}};
+		this.state = {sailplanes: [], attributes: [], page: 1, pageSize: 2, links: {}};
 		this.updatePageSize = this.updatePageSize.bind(this);
 		this.onCreate = this.onCreate.bind(this);
 		this.onUpdate = this.onUpdate.bind(this);
 		this.onDelete = this.onDelete.bind(this);
 		this.onNavigate = this.onNavigate.bind(this);
+		this.refreshCurrentPage = this.refreshCurrentPage.bind(this);
+		this.refreshAndGoToLastPage = this.refreshAndGoToLastPage.bind(this);
 	}
 
 	// tag::follow-2[]
@@ -36,6 +39,7 @@ class App extends React.Component {
 				return sailplaneCollection;
 			});
 		}).then(sailplaneCollection => {
+			this.page = sailplaneCollection.entity.page;
 			return sailplaneCollection.entity._embedded.sailplanes.map(sailplane =>
 					client({
 						method: 'GET',
@@ -46,6 +50,7 @@ class App extends React.Component {
 			return when.all(sailplanePromises);
 		}).done(sailplanes => {
 			this.setState({
+				page: this.page,
 				sailplanes: sailplanes,
 				attributes: Object.keys(this.schema.properties),
 				pageSize: pageSize,
@@ -55,29 +60,20 @@ class App extends React.Component {
 	}
 	// end::follow-2[]
 
-	// tag::create[]
+	// tag::on-create[]
 	onCreate(newSailplane) {
-		follow(client, root, ['sailplanes']).then(response => {
-			return client({
+		follow(client, root, ['sailplanes']).done(response => {
+			client({
 				method: 'POST',
 				path: response.entity._links.self.href,
 				entity: newSailplane,
 				headers: {'Content-Type': 'application/json'}
 			})
-		}).then(response => {
-			return follow(client, root, [
-				{rel: 'sailplanes', params: {'size': self.state.pageSize}}]);
-		}).done(response => {
-			if (typeof response.entity._links.last != "undefined") {
-				this.onNavigate(response.entity._links.last.href);
-			} else {
-				this.onNavigate(response.entity._links.self.href);
-			}
-		});
+		})
 	}
-	// end::create[]
+	// end::on-create[]
 
-	// tag::update[]
+	// tag::on-update[]
 	onUpdate(sailplane, updatedSailplane) {
 		client({
 			method: 'PUT',
@@ -88,7 +84,7 @@ class App extends React.Component {
 				'If-Match': sailplane.headers.Etag
 			}
 		}).done(response => {
-			this.loadFromServer(this.state.pageSize);
+			// loadFromServer(this.state.pageSize); Let the websocket handler update the state this.
 		}, response => {
 			if (response.status.code === 412) {
 				alert('DENIED: Unable to update ' +
@@ -96,15 +92,13 @@ class App extends React.Component {
 			}
 		});
 	}
-	// end::update[]
+	// end::on-update[]
 
-	// tag::delete[]
+	// tag::on-delete[]
 	onDelete(sailplane) {
-		client({method: 'DELETE', path: sailplane.entity._links.self.href}).done(response => {
-			this.loadFromServer(this.state.pageSize);
-		});
+		client({method: 'DELETE', path: sailplane.entity._links.self.href}); //.done(response => { this.loadFromServer(this.state.pageSize); });
 	}
-	// end::delete[]
+	// end::on-delete[]
 
 	// tag::navigate[]
 	onNavigate(navUri) {
@@ -113,6 +107,7 @@ class App extends React.Component {
 			path: navUri
 		}).then(sailplaneCollection => {
 			this.links = sailplaneCollection.entity._links;
+			this.page = sailplaneCollection.entity.page;
 
 			return sailplaneCollection.entity._embedded.sailplanes.map(sailplane =>
 					client({
@@ -124,6 +119,7 @@ class App extends React.Component {
 			return when.all(sailplanePromises);
 		}).done(sailplanes => {
 			this.setState({
+				page: this.page,
 				sailplanes: sailplanes,
 				attributes: Object.keys(this.schema.properties),
 				pageSize: this.state.pageSize,
@@ -141,24 +137,75 @@ class App extends React.Component {
 	}
 	// end::update-page-size[]
 
-	// tag::follow-1[]
+	// tag::websocket-handlers[]
+	refreshAndGoToLastPage(message) {
+		follow(client, root, [{
+			rel: 'sailplanes',
+			params: {size: this.state.pageSize}
+		}]).done(response => {
+			if (response.entity._links.last !== undefined) {
+				this.onNavigate(response.entity._links.last.href);
+			} else {
+				this.onNavigate(response.entity._links.self.href);
+			}
+		})
+	}
+
+	refreshCurrentPage(message) {
+		follow(client, root, [{
+			rel: 'sailplanes',
+			params: {
+				size: this.state.pageSize,
+				page: this.state.page.number
+			}
+		}]).then(sailplaneCollection => {
+			this.links = sailplaneCollection.entity._links;
+			this.page = sailplaneCollection.entity.page;
+
+			return sailplaneCollection.entity._embedded.sailplanes.map(sailplane => {
+				return client({
+					method: 'GET',
+					path: sailplane._links.self.href
+				})
+			});
+		}).then(sailplanePromises => {
+			return when.all(sailplanePromises);
+		}).then(sailplanes => {
+			this.setState({
+				page: this.page,
+				sailplanes: sailplanes,
+				attributes: Object.keys(this.schema.properties),
+				pageSize: this.state.pageSize,
+				links: this.links
+			});
+		});
+	}
+	// end::websocket-handlers[]
+
+	// tag::register-handlers[]
 	componentDidMount() {
 		this.loadFromServer(this.state.pageSize);
+		stompClient.register([
+			{route: '/topic/newSailplane', callback: this.refreshAndGoToLastPage},
+			{route: '/topic/updateSailplane', callback: this.refreshCurrentPage},
+			{route: '/topic/deleteSailplane', callback: this.refreshCurrentPage}
+		]);
 	}
-	// end::follow-1[]
+	// end::register-handlers[]
 
 	render() {
 		return (
 			<div>
 				<CreateDialog attributes={this.state.attributes} onCreate={this.onCreate}/>
-				<SailplaneList sailplanes={this.state.sailplanes}
-							  links={this.state.links}
-							  pageSize={this.state.pageSize}
-							  attributes={this.state.attributes}
-							  onNavigate={this.onNavigate}
-							  onUpdate={this.onUpdate}
-							  onDelete={this.onDelete}
-							  updatePageSize={this.updatePageSize}/>
+				<SailplaneList page={this.state.page}
+							sailplanes={this.state.sailplanes}
+							links={this.state.links}
+							pageSize={this.state.pageSize}
+							attributes={this.state.attributes}
+							onNavigate={this.onNavigate}
+							onUpdate={this.onUpdate}
+							onDelete={this.onDelete}
+							updatePageSize={this.updatePageSize}/>
 			</div>
 		)
 	}
@@ -181,13 +228,11 @@ class CreateDialog extends React.Component {
 		});
 		this.props.onCreate(newSailplane);
 
-		// clear out the dialog's inputs
 		this.props.attributes.forEach(attribute => {
-			ReactDOM.findDOMNode(this.refs[attribute]).value = '';
+			ReactDOM.findDOMNode(this.refs[attribute]).value = ''; // clear out the dialog's inputs
 		});
 
-		// Navigate away from the dialog to hide it.
-		window.location = "#";
+		window.location = "#"; // Navigate away from the dialog to hide it.
 	}
 
 	render() {
@@ -250,11 +295,11 @@ class UpdateDialog extends React.Component {
 		var dialogId = "updateSailplane-" + this.props.sailplane.entity._links.self.href;
 
 		return (
-			<div key={this.props.sailplane.entity._links.self.href}>
+			<div>
 				<a href={"#" + dialogId}>Update</a>
 				<div id={dialogId} className="modalDialog">
 					<div>
-						<a href="#" title="Close" className="close">XD</a>
+						<a href="#" title="Close" className="close">XXXD</a>
 
 						<h2>Update a sailplane!</h2>
 
@@ -320,6 +365,9 @@ class SailplaneList extends React.Component{
 
 	// tag::sailplane-list-render[]
 	render() {
+		var pageInfo = this.props.page.hasOwnProperty("number") ?
+			<h3>Sailplanes - Page {this.props.page.number + 1} of {this.props.page.totalPages}</h3> : null;
+
 		var sailplanes = this.props.sailplanes.map(sailplane =>
 			<Sailplane key={sailplane.entity._links.self.href} 
 						sailplane={sailplane}
@@ -344,6 +392,7 @@ class SailplaneList extends React.Component{
 
 		return (
 			<div>
+				{pageInfo}
 				<input ref="pageSize" defaultValue={this.props.pageSize} onInput={this.handleInput}/>
 				<table>
 					<tbody>
