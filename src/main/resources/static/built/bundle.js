@@ -85,9 +85,6 @@
 			return _this;
 		}
 	
-		// tag::follow-2[]
-	
-	
 		_createClass(App, [{
 			key: 'loadFromServer',
 			value: function loadFromServer(pageSize) {
@@ -99,6 +96,18 @@
 						path: sailplaneCollection.entity._links.profile.href,
 						headers: { 'Accept': 'application/schema+json' }
 					}).then(function (schema) {
+						/**
+	      * Filter unneeded JSON Schema properties, like uri references and
+	      * subtypes ($ref).
+	      */
+						Object.keys(schema.entity.properties).forEach(function (property) {
+							if (schema.entity.properties[property].hasOwnProperty('format') && schema.entity.properties[property].format === 'uri') {
+								delete schema.entity.properties[property];
+							} else if (schema.entity.properties[property].hasOwnProperty('$ref')) {
+								delete schema.entity.properties[property];
+							}
+						});
+	
 						_this2.schema = schema.entity;
 						_this2.links = sailplaneCollection.entity._links;
 						return sailplaneCollection;
@@ -123,10 +132,6 @@
 					});
 				});
 			}
-			// end::follow-2[]
-	
-			// tag::on-create[]
-	
 		}, {
 			key: 'onCreate',
 			value: function onCreate(newSailplane) {
@@ -139,10 +144,6 @@
 					});
 				});
 			}
-			// end::on-create[]
-	
-			// tag::on-update[]
-	
 		}, {
 			key: 'onUpdate',
 			value: function onUpdate(sailplane, updatedSailplane) {
@@ -155,26 +156,25 @@
 						'If-Match': sailplane.headers.Etag
 					}
 				}).done(function (response) {
-					// loadFromServer(this.state.pageSize); Let the websocket handler update the state this.
+					/* Let the websocket handler update the state */
 				}, function (response) {
+					if (response.status.code === 403) {
+						alert('ACCESS DENIED: You are not authorized to update ' + sailplane.entity._links.self.href);
+					}
 					if (response.status.code === 412) {
 						alert('DENIED: Unable to update ' + sailplane.entity._links.self.href + '. Your copy is stale.');
 					}
 				});
 			}
-			// end::on-update[]
-	
-			// tag::on-delete[]
-	
 		}, {
 			key: 'onDelete',
 			value: function onDelete(sailplane) {
-				client({ method: 'DELETE', path: sailplane.entity._links.self.href }); //.done(response => { this.loadFromServer(this.state.pageSize); });
+				client({ method: 'DELETE', path: sailplane.entity._links.self.href }).done(function (response) {/* let the websocket handle updating the UI */}, function (response) {
+					if (response.status.code === 403) {
+						alert('ACCESS DENIED: You are not authorized to delete ' + sailplane.entity._links.self.href);
+					}
+				});
 			}
-			// end::on-delete[]
-	
-			// tag::navigate[]
-	
 		}, {
 			key: 'onNavigate',
 			value: function onNavigate(navUri) {
@@ -205,10 +205,6 @@
 					});
 				});
 			}
-			// end::navigate[]
-	
-			// tag::update-page-size[]
-	
 		}, {
 			key: 'updatePageSize',
 			value: function updatePageSize(pageSize) {
@@ -216,7 +212,6 @@
 					this.loadFromServer(pageSize);
 				}
 			}
-			// end::update-page-size[]
 	
 			// tag::websocket-handlers[]
 	
@@ -269,18 +264,12 @@
 					});
 				});
 			}
-			// end::websocket-handlers[]
-	
-			// tag::register-handlers[]
-	
 		}, {
 			key: 'componentDidMount',
 			value: function componentDidMount() {
 				this.loadFromServer(this.state.pageSize);
 				stompClient.register([{ route: '/topic/newSailplane', callback: this.refreshAndGoToLastPage }, { route: '/topic/updateSailplane', callback: this.refreshCurrentPage }, { route: '/topic/deleteSailplane', callback: this.refreshCurrentPage }]);
 			}
-			// end::register-handlers[]
-	
 		}, {
 			key: 'render',
 			value: function render() {
@@ -303,10 +292,6 @@
 	
 		return App;
 	}(React.Component);
-	// end::app[]
-	
-	// tag::create-dialog[]
-	
 	
 	var CreateDialog = function (_React$Component2) {
 		_inherits(CreateDialog, _React$Component2);
@@ -366,7 +351,7 @@
 							React.createElement(
 								'a',
 								{ href: '#', title: 'Close', className: 'close' },
-								'X'
+								'X)'
 							),
 							React.createElement(
 								'h2',
@@ -391,10 +376,6 @@
 	
 		return CreateDialog;
 	}(React.Component);
-	// end::create-dialog[]
-	
-	// tag::update-dialog[]
-	
 	
 	var UpdateDialog = function (_React$Component3) {
 		_inherits(UpdateDialog, _React$Component3);
@@ -455,7 +436,7 @@
 							React.createElement(
 								'a',
 								{ href: '#', title: 'Close', className: 'close' },
-								'XXXD'
+								'XD'
 							),
 							React.createElement(
 								'h2',
@@ -482,9 +463,6 @@
 	}(React.Component);
 	
 	;
-	// end::update-dialog[]
-	
-	// tag::sailplane-list[]
 	
 	var SailplaneList = function (_React$Component4) {
 		_inherits(SailplaneList, _React$Component4);
@@ -502,9 +480,6 @@
 			return _this11;
 		}
 	
-		// tag::handle-page-size-updates[]
-	
-	
 		_createClass(SailplaneList, [{
 			key: 'handleInput',
 			value: function handleInput(e) {
@@ -516,10 +491,6 @@
 					ReactDOM.findDOMNode(this.refs.pageSize).value = pageSize.substring(0, pageSize.length - 1);
 				}
 			}
-			// end::handle-page-size-updates[]
-	
-			// tag::handle-nav[]
-	
 		}, {
 			key: 'handleNavFirst',
 			value: function handleNavFirst(e) {
@@ -544,10 +515,6 @@
 				e.preventDefault();
 				this.props.onNavigate(this.props.links.last.href);
 			}
-			// end::handle-nav[]
-	
-			// tag::sailplane-list-render[]
-	
 		}, {
 			key: 'render',
 			value: function render() {
@@ -649,6 +616,11 @@
 									null,
 									'Aspect Ratio'
 								),
+								React.createElement(
+									'th',
+									null,
+									'Manager'
+								),
 								React.createElement('th', null),
 								React.createElement('th', null)
 							),
@@ -662,13 +634,10 @@
 					)
 				);
 			}
-			// end::sailplane-list-render[]
-	
 		}]);
 	
 		return SailplaneList;
 	}(React.Component);
-	// end::sailplane-list[]
 	
 	// tag::sailplane[]
 	
@@ -730,6 +699,11 @@
 						'td',
 						null,
 						this.props.sailplane.entity.aspectRatio
+					),
+					React.createElement(
+						'td',
+						null,
+						this.props.sailplane.entity.manager.name
 					),
 					React.createElement(
 						'td',

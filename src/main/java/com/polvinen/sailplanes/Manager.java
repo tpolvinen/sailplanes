@@ -18,38 +18,41 @@ package com.polvinen.sailplanes;
 import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
-import javax.persistence.ManyToOne;
-import javax.persistence.Version;
 
 import lombok.Data;
+import lombok.ToString;
+
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 @Data
+@ToString(exclude = "password")
 @Entity
-public class Sailplane {
+public class Manager {
+
+	public static final PasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 
 	private @Id @GeneratedValue Long id;
+
 	private String name;
-    private int year;
-    private String structure;
-    private String inFlight;
-    private String wingArea;
-    private String wingLoading;
-    private String aspectRatio;
-    private @Version @JsonIgnore Long version;
-    private @ManyToOne Manager manager;
 
-	private Sailplane() {}
+	private @JsonIgnore String password;
 
-    public Sailplane(String name, int year, String structure, String inFlight, String wingArea, String wingLoading, String aspectRatio, Manager manager) {
-        this.name = name;
-        this.year = year;
-        this.structure = structure;
-        this.inFlight = inFlight;
-        this.wingArea = wingArea;
-        this.wingLoading = wingLoading;
-        this.aspectRatio = aspectRatio;
-        this.manager = manager;
-    }
+	private String[] roles;
+
+	public void setPassword(String password) {
+		this.password = PASSWORD_ENCODER.encode(password);
+	}
+
+	protected Manager() {}
+
+	public Manager(String name, String password, String... roles) {
+
+		this.name = name;
+		this.setPassword(password);
+		this.roles = roles;
+	}
+
 }

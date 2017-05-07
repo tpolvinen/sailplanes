@@ -17,24 +17,46 @@ package com.polvinen.sailplanes;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 // tag::code[]
 @Component
 public class DatabaseLoader implements CommandLineRunner {
 
-	private final SailplaneRepository spRepository;
+	private final SailplaneRepository sailplanes;
+	private final ManagerRepository managers;
 
 	@Autowired
-	public DatabaseLoader(SailplaneRepository spRepository) {
-		this.spRepository = spRepository;
+	public DatabaseLoader(SailplaneRepository sailplaneRepository,  ManagerRepository managerRepository) {
+		this.sailplanes = sailplaneRepository;
+		this.managers = managerRepository;
 	}
 
 	@Override
 	public void run(String... strings) throws Exception {
-		this.spRepository.save(new Sailplane("Vampyr", 1921, "120 kg", "195 kg", "16 sq m", "12 kg/sq m", "9,95"));
-		this.spRepository.save(new Sailplane("Harth-Messerschmitt S-10", 1921, "80 kg", "150 kg", "10,3 sq m", "7,9 kg/sq m", "10,3"));
-        this.spRepository.save(new Sailplane("Fokker Biplane", 1922, "93 kg", "163 kg", "36 sq m", "4,5 kg/sq m", "---"));
+
+		Manager tatu = this.managers.save(new Manager("tatu", "tatu",
+							"ROLE_MANAGER"));
+		Manager welho = this.managers.save(new Manager("welho", "welho",
+							"ROLE_MANAGER"));
+
+		SecurityContextHolder.getContext().setAuthentication(
+			new UsernamePasswordAuthenticationToken("tatu", "doesn't matter",
+				AuthorityUtils.createAuthorityList("ROLE_MANAGER")));
+
+		this.sailplanes.save(new Sailplane("Vampyr", 1921, "120 kg", "195 kg", "16 sq m", "12 kg/sq m", "9,95", tatu));
+		this.sailplanes.save(new Sailplane("Harth-Messerschmitt S-10", 1921, "80 kg", "150 kg", "10,3 sq m", "7,9 kg/sq m", "10,3", tatu));
+        
+		SecurityContextHolder.getContext().setAuthentication(
+			new UsernamePasswordAuthenticationToken("welho", "doesn't matter",
+				AuthorityUtils.createAuthorityList("ROLE_MANAGER")));
+		
+		this.sailplanes.save(new Sailplane("Fokker Biplane", 1922, "93 kg", "163 kg", "36 sq m", "4,5 kg/sq m", "---", welho));
+
+		SecurityContextHolder.clearContext();
 	}
 }
 // end::code[]

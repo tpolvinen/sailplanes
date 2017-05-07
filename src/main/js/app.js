@@ -24,7 +24,6 @@ class App extends React.Component {
 		this.refreshAndGoToLastPage = this.refreshAndGoToLastPage.bind(this);
 	}
 
-	// tag::follow-2[]
 	loadFromServer(pageSize) {
 		follow(client, root, [
 			{rel: 'sailplanes', params: {size: pageSize}}]
@@ -34,6 +33,20 @@ class App extends React.Component {
 				path: sailplaneCollection.entity._links.profile.href,
 				headers: {'Accept': 'application/schema+json'}
 			}).then(schema => {
+				/**
+				 * Filter unneeded JSON Schema properties, like uri references and
+				 * subtypes ($ref).
+				 */
+				Object.keys(schema.entity.properties).forEach(function (property) {
+					if (schema.entity.properties[property].hasOwnProperty('format') &&
+						schema.entity.properties[property].format === 'uri') {
+						delete schema.entity.properties[property];
+					}
+					else if (schema.entity.properties[property].hasOwnProperty('$ref')) {
+						delete schema.entity.properties[property];
+					}
+				});
+
 				this.schema = schema.entity;
 				this.links = sailplaneCollection.entity._links;
 				return sailplaneCollection;
@@ -58,9 +71,7 @@ class App extends React.Component {
 			});
 		});
 	}
-	// end::follow-2[]
 
-	// tag::on-create[]
 	onCreate(newSailplane) {
 		follow(client, root, ['sailplanes']).done(response => {
 			client({
@@ -71,9 +82,7 @@ class App extends React.Component {
 			})
 		})
 	}
-	// end::on-create[]
 
-	// tag::on-update[]
 	onUpdate(sailplane, updatedSailplane) {
 		client({
 			method: 'PUT',
@@ -84,23 +93,30 @@ class App extends React.Component {
 				'If-Match': sailplane.headers.Etag
 			}
 		}).done(response => {
-			// loadFromServer(this.state.pageSize); Let the websocket handler update the state this.
+			/* Let the websocket handler update the state */
 		}, response => {
+			if (response.status.code === 403) {
+				alert('ACCESS DENIED: You are not authorized to update ' +
+					sailplane.entity._links.self.href);
+			}
 			if (response.status.code === 412) {
 				alert('DENIED: Unable to update ' +
 					sailplane.entity._links.self.href + '. Your copy is stale.');
 			}
 		});
 	}
-	// end::on-update[]
 
-	// tag::on-delete[]
 	onDelete(sailplane) {
-		client({method: 'DELETE', path: sailplane.entity._links.self.href}); //.done(response => { this.loadFromServer(this.state.pageSize); });
+		client({method: 'DELETE', path: sailplane.entity._links.self.href}
+		).done(response => {/* let the websocket handle updating the UI */},
+		response => {
+			if (response.status.code === 403) {
+				alert('ACCESS DENIED: You are not authorized to delete ' +
+					sailplane.entity._links.self.href);
+			}
+		}); 
 	}
-	// end::on-delete[]
 
-	// tag::navigate[]
 	onNavigate(navUri) {
 		client({
 			method: 'GET',
@@ -127,15 +143,12 @@ class App extends React.Component {
 			});
 		});
 	}
-	// end::navigate[]
 
-	// tag::update-page-size[]
 	updatePageSize(pageSize) {
 		if (pageSize !== this.state.pageSize) {
 			this.loadFromServer(pageSize);
 		}
 	}
-	// end::update-page-size[]
 
 	// tag::websocket-handlers[]
 	refreshAndGoToLastPage(message) {
@@ -180,9 +193,7 @@ class App extends React.Component {
 			});
 		});
 	}
-	// end::websocket-handlers[]
 
-	// tag::register-handlers[]
 	componentDidMount() {
 		this.loadFromServer(this.state.pageSize);
 		stompClient.register([
@@ -191,7 +202,6 @@ class App extends React.Component {
 			{route: '/topic/deleteSailplane', callback: this.refreshCurrentPage}
 		]);
 	}
-	// end::register-handlers[]
 
 	render() {
 		return (
@@ -210,9 +220,7 @@ class App extends React.Component {
 		)
 	}
 }
-// end::app[]
 
-// tag::create-dialog[]
 class CreateDialog extends React.Component {
 
 	constructor(props) {
@@ -248,7 +256,7 @@ class CreateDialog extends React.Component {
 
 				<div id="createSailplane" className="modalDialog">
 					<div>
-						<a href="#" title="Close" className="close">X</a>
+						<a href="#" title="Close" className="close">X)</a>
 
 						<h2>Create new sailplane</h2>
 
@@ -263,9 +271,7 @@ class CreateDialog extends React.Component {
 	}
 
 }
-// end::create-dialog[]
 
-// tag::update-dialog[]
 class UpdateDialog extends React.Component {
 
 	constructor(props) {
@@ -299,7 +305,7 @@ class UpdateDialog extends React.Component {
 				<a href={"#" + dialogId}>Update</a>
 				<div id={dialogId} className="modalDialog">
 					<div>
-						<a href="#" title="Close" className="close">XXXD</a>
+						<a href="#" title="Close" className="close">XD</a>
 
 						<h2>Update a sailplane!</h2>
 
@@ -314,9 +320,7 @@ class UpdateDialog extends React.Component {
 	}
 
 };
-// end::update-dialog[]
 
-// tag::sailplane-list[]
 class SailplaneList extends React.Component{
 
 	constructor(props) {
@@ -328,7 +332,6 @@ class SailplaneList extends React.Component{
 		this.handleInput = this.handleInput.bind(this);
 	}
 
-	// tag::handle-page-size-updates[]
 	handleInput(e) {
 		e.preventDefault();
 		var pageSize = ReactDOM.findDOMNode(this.refs.pageSize).value;
@@ -339,9 +342,7 @@ class SailplaneList extends React.Component{
 				pageSize.substring(0, pageSize.length - 1);
 		}
 	}
-	// end::handle-page-size-updates[]
 
-	// tag::handle-nav[]
 	handleNavFirst(e){
 		e.preventDefault();
 		this.props.onNavigate(this.props.links.first.href);
@@ -361,9 +362,7 @@ class SailplaneList extends React.Component{
 		e.preventDefault();
 		this.props.onNavigate(this.props.links.last.href);
 	}
-	// end::handle-nav[]
 
-	// tag::sailplane-list-render[]
 	render() {
 		var pageInfo = this.props.page.hasOwnProperty("number") ?
 			<h3>Sailplanes - Page {this.props.page.number + 1} of {this.props.page.totalPages}</h3> : null;
@@ -404,6 +403,7 @@ class SailplaneList extends React.Component{
 							<th>Wing Area</th>
 							<th>Wing Loading</th>
 							<th>Aspect Ratio</th>
+							<th>Manager</th>
 							<th></th>
 							<th></th>
 						</tr>
@@ -416,9 +416,7 @@ class SailplaneList extends React.Component{
 			</div>
 		)
 	}
-	// end::sailplane-list-render[]
 }
-// end::sailplane-list[]
 
 // tag::sailplane[]
 class Sailplane extends React.Component{
@@ -442,6 +440,7 @@ class Sailplane extends React.Component{
 				<td>{this.props.sailplane.entity.wingArea}</td>
 				<td>{this.props.sailplane.entity.wingLoading}</td>
 				<td>{this.props.sailplane.entity.aspectRatio}</td>
+				<td>{this.props.sailplane.entity.manager.name}</td>
 				<td>
 					<UpdateDialog sailplane={this.props.sailplane}
 								  attributes={this.props.attributes}

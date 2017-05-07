@@ -16,9 +16,21 @@
 package com.polvinen.sailplanes;
 
 import org.springframework.data.repository.PagingAndSortingRepository;
+import org.springframework.data.repository.query.Param;
+import org.springframework.security.access.prepost.PreAuthorize;
 
-// tag::code[]
+@PreAuthorize("hasRole('ROLE_MANAGER')")
 public interface SailplaneRepository extends PagingAndSortingRepository<Sailplane, Long> {
+    @Override
+	@PreAuthorize("#sailplane?.manager == null or #sailplane?.manager?.name == authentication?.name")
+	Sailplane save(@Param("sailplane") Sailplane sailplane);
+
+	@Override
+	@PreAuthorize("@sailplaneRepository.findOne(#id)?.manager?.name == authentication?.name")
+	void delete(@Param("id") Long id);
+
+	@Override
+	@PreAuthorize("#sailplane?.manager?.name == authentication?.name")
+	void delete(@Param("sailplane") Sailplane sailplane);
 
 }
-// end::code[]
