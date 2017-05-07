@@ -13,7 +13,7 @@
 
 	<groupId>com.polvinen</groupId>
 	<artifactId>sailplanes</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>0</version>
 	<packaging>jar</packaging>
 
 	<name>Sailplanes with React.js and Spring Data REST</name>
