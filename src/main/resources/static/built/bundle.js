@@ -169,7 +169,12 @@
 		}, {
 			key: 'onDelete',
 			value: function onDelete(sailplane) {
-				client({ method: 'DELETE', path: sailplane.entity._links.self.href }).done(function (response) {/* let the websocket handle updating the UI */}, function (response) {
+				client({
+					method: 'DELETE',
+					path: sailplane.entity._links.self.href
+				}).done(function (response) {
+					/* let the websocket handle updating the UI */
+				}, function (response) {
 					if (response.status.code === 403) {
 						alert('ACCESS DENIED: You are not authorized to delete ' + sailplane.entity._links.self.href);
 					}

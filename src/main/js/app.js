@@ -107,8 +107,12 @@ class App extends React.Component {
 	}
 
 	onDelete(sailplane) {
-		client({method: 'DELETE', path: sailplane.entity._links.self.href}
-		).done(response => {/* let the websocket handle updating the UI */},
+		client({
+			method: 'DELETE', 
+			path: sailplane.entity._links.self.href
+		}).done(response => {
+			/* let the websocket handle updating the UI */
+		},
 		response => {
 			if (response.status.code === 403) {
 				alert('ACCESS DENIED: You are not authorized to delete ' +
